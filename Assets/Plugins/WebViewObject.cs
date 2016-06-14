@@ -24,154 +24,186 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+#if UNITY_EDITOR || UNITY_STANDALONE_OSX
+using System.IO;
+using System.Text.RegularExpressions;
+#endif
 
 using Callback = System.Action<string>;
 
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX
 public class UnitySendMessageDispatcher
 {
-	public static void Dispatch(string name, string method, string message)
-	{
-		GameObject obj = GameObject.Find(name);
-		if (obj != null)
-			obj.SendMessage(method, message);
-	}
+    public static void Dispatch(string name, string method, string message)
+    {
+        GameObject obj = GameObject.Find(name);
+        if (obj != null)
+            obj.SendMessage(method, message);
+    }
 }
 #endif
 
 public class WebViewObject : MonoBehaviour
 {
-	Callback callback;
+    Callback callback;
+    bool visibility;
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX
-	IntPtr webView;
-	bool visibility;
-	Rect rect;
-	Texture2D texture;
-	string inputString;
+    IntPtr webView;
+    Rect rect;
+    Texture2D texture;
+    string inputString;
+    bool hasFocus;
 #elif UNITY_IPHONE
-	IntPtr webView;
+    IntPtr webView;
 #elif UNITY_ANDROID
-	AndroidJavaObject webView;
-	
-	bool mIsKeyboardVisible = false;
-	
-	/// Called from Java native plugin to set when the keyboard is opened
-	public void SetKeyboardVisible(string pIsVisible)
-	{
-		mIsKeyboardVisible = (pIsVisible == "true");
-	}
+    AndroidJavaObject webView;
+    
+    bool mIsKeyboardVisible = false;
+    
+    /// Called from Java native plugin to set when the keyboard is opened
+    public void SetKeyboardVisible(string pIsVisible)
+    {
+        mIsKeyboardVisible = (pIsVisible == "true");
+    }
 #elif UNITY_WEBPLAYER
 #endif
-	
-	public bool IsKeyboardVisible {
-		get {
-#if UNITY_ANDROID && !UNITY_EDITOR
-			return mIsKeyboardVisible;
+    
+    public bool IsKeyboardVisible {
+        get {
+#if !UNITY_EDITOR && UNITY_ANDROID
+            return mIsKeyboardVisible;
+#elif !UNITY_EDITOR && UNITY_IPHONE
+            return TouchScreenKeyboard.visible;
 #else
-			return TouchScreenKeyboard.visible;
+            return false;
 #endif
-		}
-	}
+        }
+    }
 
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX
-	[DllImport("WebView")]
-	private static extern IntPtr _WebViewPlugin_Init(
-		string gameObject, int width, int height, bool ineditor);
-	[DllImport("WebView")]
-	private static extern int _WebViewPlugin_Destroy(IntPtr instance);
-	[DllImport("WebView")]
-	private static extern void _WebViewPlugin_SetRect(
-		IntPtr instance, int width, int height);
-	[DllImport("WebView")]
-	private static extern void _WebViewPlugin_SetVisibility(
-		IntPtr instance, bool visibility);
-	[DllImport("WebView")]
-	private static extern void _WebViewPlugin_LoadURL(
-		IntPtr instance, string url);
-	[DllImport("WebView")]
-	private static extern void _WebViewPlugin_EvaluateJS(
-		IntPtr instance, string url);
-	[DllImport("WebView")]
-	private static extern void _WebViewPlugin_Update(IntPtr instance,
-		int x, int y, float deltaY, bool down, bool press, bool release,
-		bool keyPress, short keyCode, string keyChars, int textureId);
-	[DllImport("WebView")]
-	private static extern void _WebViewPlugin_SetCurrentInstance(IntPtr instance);
+    [DllImport("WebView")]
+    private static extern string _CWebViewPlugin_GetAppPath();
+    [DllImport("WebView")]
+    private static extern IntPtr _CWebViewPlugin_Init(
+        string gameObject, bool transparent, int width, int height, string ua, bool ineditor);
+    [DllImport("WebView")]
+    private static extern int _CWebViewPlugin_Destroy(IntPtr instance);
+    [DllImport("WebView")]
+    private static extern void _CWebViewPlugin_SetRect(
+        IntPtr instance, int width, int height);
+    [DllImport("WebView")]
+    private static extern void _CWebViewPlugin_SetVisibility(
+        IntPtr instance, bool visibility);
+    [DllImport("WebView")]
+    private static extern void _CWebViewPlugin_LoadURL(
+        IntPtr instance, string url);
+    [DllImport("WebView")]
+    private static extern void _CWebViewPlugin_EvaluateJS(
+        IntPtr instance, string url);
+    [DllImport("WebView")]
+    private static extern void _CWebViewPlugin_Update(IntPtr instance,
+        int x, int y, float deltaY, bool down, bool press, bool release,
+        bool keyPress, short keyCode, string keyChars);
+    [DllImport("WebView")]
+    private static extern int _CWebViewPlugin_BitmapWidth(IntPtr instance);
+    [DllImport("WebView")]
+    private static extern int _CWebViewPlugin_BitmapHeight(IntPtr instance);
+    [DllImport("WebView")]
+    private static extern void _CWebViewPlugin_SetTextureId(IntPtr instance, int textureId);
+    [DllImport("WebView")]
+    private static extern void _CWebViewPlugin_SetCurrentInstance(IntPtr instance);
+    [DllImport("WebView")]
+    private static extern IntPtr GetRenderEventFunc();
 #elif UNITY_IPHONE
-	[DllImport("__Internal")]
-	private static extern IntPtr _WebViewPlugin_Init(string gameObject);
-	[DllImport("__Internal")]
-	private static extern int _WebViewPlugin_Destroy(IntPtr instance);
-	[DllImport("__Internal")]
-	private static extern void _WebViewPlugin_SetMargins(
-		IntPtr instance, int left, int top, int right, int bottom);
-	[DllImport("__Internal")]
-	private static extern void _WebViewPlugin_SetVisibility(
-		IntPtr instance, bool visibility);
-	[DllImport("__Internal")]
-	private static extern void _WebViewPlugin_LoadURL(
-		IntPtr instance, string url);
-	[DllImport("__Internal")]
-	private static extern void _WebViewPlugin_EvaluateJS(
-		IntPtr instance, string url);
     [DllImport("__Internal")]
-    private static extern void _WebViewPlugin_SetFrame(
+    private static extern IntPtr _CWebViewPlugin_Init(string gameObject, bool transparent);
+    [DllImport("__Internal")]
+    private static extern int _CWebViewPlugin_Destroy(IntPtr instance);
+    [DllImport("__Internal")]
+    private static extern void _CWebViewPlugin_SetMargins(
+        IntPtr instance, int left, int top, int right, int bottom);
+    [DllImport("__Internal")]
+    private static extern void _CWebViewPlugin_SetVisibility(
+        IntPtr instance, bool visibility);
+    [DllImport("__Internal")]
+    private static extern void _CWebViewPlugin_LoadURL(
+        IntPtr instance, string url);
+    [DllImport("__Internal")]
+    private static extern void _CWebViewPlugin_EvaluateJS(
+        IntPtr instance, string url);
+    [DllImport("__Internal")]
+    private static extern void _CWebViewPlugin_SetFrame(
         IntPtr instance, int x , int y , int width , int height);
 #endif
 
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX
-	private void CreateTexture(int x, int y, int width, int height)
-	{
-		int w = 1;
-		int h = 1;
-		while (w < width)
-			w <<= 1;
-		while (h < height)
-			h <<= 1;
-		rect = new Rect(x, y, width, height);
-		texture = new Texture2D(w, h, TextureFormat.ARGB32, false);
-	}
+    public void Init(Callback cb = null, bool transparent = false, string ua = @"Mozilla/5.0 (iPhone; CPU iPhone OS 7_1_2 like Mac OS X) AppleWebKit/537.51.2 (KHTML, like Gecko) Version/7.0 Mobile/11D257 Safari/9537.53")
+#else
+    public void Init(Callback cb = null, bool transparent = false)
 #endif
-
-	public void Init(Callback cb = null)
-	{
-		callback = cb;
+    {
+        callback = cb;
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX
-		CreateTexture(0, 0, Screen.width, Screen.height);
-		webView = _WebViewPlugin_Init(name, Screen.width, Screen.height,
-			Application.platform == RuntimePlatform.OSXEditor);
+        {
+            var path = Regex.Replace(_CWebViewPlugin_GetAppPath() + "Contents/Info.plist", "^file://", "");
+            var info = File.ReadAllText(path);
+            if (Regex.IsMatch(info, @"<key>CFBundleGetInfoString</key>\s*<string>Unity version [5-9]\.[3-9]")
+                && !Regex.IsMatch(info, @"<key>NSAppTransportSecurity</key>\s*<dict>\s*<key>NSAllowsArbitraryLoads</key>\s*<true/>\s*</dict>")) {
+                Debug.LogWarning("<color=yellow>WebViewObject: NSAppTransportSecurity isn't configured to allow HTTP. If you need to allow any HTTP access, please shutdown Unity and invoke:</color>\n/usr/libexec/PlistBuddy -c \"Add NSAppTransportSecurity:NSAllowsArbitraryLoads bool true\" /Applications/Unity/Unity.app/Contents/Info.plist");
+            }
+        }
+        webView = _CWebViewPlugin_Init(
+            name,
+            transparent,
+            Screen.width,
+            Screen.height,
+            ua,
+            Application.platform == RuntimePlatform.OSXEditor);
+        // define pseudo requestAnimationFrame.
+        EvaluateJS(@"(function() {
+            var vsync = 1000 / 60;
+            var t0 = window.performance.now();
+            window.requestAnimationFrame = function(callback, element) {
+                var t1 = window.performance.now();
+                var duration = t1 - t0;
+                var d = vsync - ((duration > vsync) ? duration % vsync : duration);
+                var id = window.setTimeout(function() {t0 = window.performance.now(); callback(t1 + d);}, d);
+                return id;
+            };
+        })()");
+        rect = new Rect(0, 0, Screen.width, Screen.height);
+        OnApplicationFocus(true);
 #elif UNITY_IPHONE
-		webView = _WebViewPlugin_Init(name);
+        webView = _CWebViewPlugin_Init(name, transparent);
 #elif UNITY_ANDROID
-		webView = new AndroidJavaObject("net.gree.unitywebview.WebViewPlugin");
-		webView.Call("Init", name);
+        webView = new AndroidJavaObject("net.gree.unitywebview.CWebViewPlugin");
+        webView.Call("Init", name, transparent);
 #elif UNITY_WEBPLAYER
-		Application.ExternalCall("unityWebView.init", name);
+        Application.ExternalCall("unityWebView.init", name);
 #endif
-	}
+    }
 
-	void OnDestroy()
-	{
+    protected virtual void OnDestroy()
+    {
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX
-		if (webView == IntPtr.Zero)
-			return;
-		_WebViewPlugin_Destroy(webView);
-		webView = IntPtr.Zero;
+        if (webView == IntPtr.Zero)
+            return;
+        _CWebViewPlugin_Destroy(webView);
+        webView = IntPtr.Zero;
 #elif UNITY_IPHONE
-		if (webView == IntPtr.Zero)
-			return;
-		_WebViewPlugin_Destroy(webView);
-		webView = IntPtr.Zero;
+        if (webView == IntPtr.Zero)
+            return;
+        _CWebViewPlugin_Destroy(webView);
+        webView = IntPtr.Zero;
 #elif UNITY_ANDROID
-		if (webView == null)
-			return;
-		webView.Call("Destroy");
-		webView = null;
+        if (webView == null)
+            return;
+        webView.Call("Destroy");
+        webView = null;
 #elif UNITY_WEBPLAYER
-		Application.ExternalCall("unityWebView.destroy", name);
-		webView = null;
+        Application.ExternalCall("unityWebView.destroy", name);
 #endif
-	}
+    }
 
     /** Use this function instead of SetMargins to easily set up a centered window */
     public void SetCenterPositionWithScale(Vector2 center , Vector2 scale)
@@ -182,129 +214,154 @@ public class WebViewObject : MonoBehaviour
         rect.width = scale.x;
         rect.height = scale.y;
 #elif UNITY_IPHONE
-        if(webView == IntPtr.Zero) return;
-        _WebViewPlugin_SetFrame(webView,(int)center.x,(int)center.y,(int)scale.x,(int)scale.y);
+        if (webView == IntPtr.Zero) return;
+        _CWebViewPlugin_SetFrame(webView,(int)center.x,(int)center.y,(int)scale.x,(int)scale.y);
 #endif
     }
 
-	public void SetMargins(int left, int top, int right, int bottom)
-	{
+    public void SetMargins(int left, int top, int right, int bottom)
+    {
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX
-		if (webView == IntPtr.Zero)
-			return;
-		int width = Screen.width - (left + right);
-		int height = Screen.height - (bottom + top);
-		CreateTexture(left, bottom, width, height);
-		_WebViewPlugin_SetRect(webView, width, height);
+        if (webView == IntPtr.Zero)
+            return;
+        int width = Screen.width - (left + right);
+        int height = Screen.height - (bottom + top);
+        _CWebViewPlugin_SetRect(webView, width, height);
+        rect = new Rect(left, bottom, width, height);
 #elif UNITY_IPHONE
-		if (webView == IntPtr.Zero)
-			return;
-		_WebViewPlugin_SetMargins(webView, left, top, right, bottom);
+        if (webView == IntPtr.Zero)
+            return;
+        _CWebViewPlugin_SetMargins(webView, left, top, right, bottom);
 #elif UNITY_ANDROID
-		if (webView == null)
-			return;
-		webView.Call("SetMargins", left, top, right, bottom);
+        if (webView == null)
+            return;
+        webView.Call("SetMargins", left, top, right, bottom);
 #elif UNITY_WEBPLAYER
-		Application.ExternalCall("unityWebView.setMargins", name, left, top, right, bottom);
+        Application.ExternalCall("unityWebView.setMargins", name, left, top, right, bottom);
 #endif
-	}
+    }
 
-	public void SetVisibility(bool v)
-	{
+    public void SetVisibility(bool v)
+    {
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX
-		if (webView == IntPtr.Zero)
-			return;
-		visibility = v;
-		_WebViewPlugin_SetVisibility(webView, v);
+        if (webView == IntPtr.Zero)
+            return;
+        _CWebViewPlugin_SetVisibility(webView, v);
 #elif UNITY_IPHONE
-		if (webView == IntPtr.Zero)
-			return;
-		_WebViewPlugin_SetVisibility(webView, v);
+        if (webView == IntPtr.Zero)
+            return;
+        _CWebViewPlugin_SetVisibility(webView, v);
 #elif UNITY_ANDROID
-		if (webView == null)
-			return;
-		webView.Call("SetVisibility", v);
+        if (webView == null)
+            return;
+        webView.Call("SetVisibility", v);
 #elif UNITY_WEBPLAYER
-		Application.ExternalCall("unityWebView.setVisibility", name, v);
+        Application.ExternalCall("unityWebView.setVisibility", name, v);
 #endif
-	}
+        visibility = v;
+    }
 
-	public void LoadURL(string url)
-	{
+    public bool GetVisibility()
+    {
+        return visibility;
+    }
+
+    public void LoadURL(string url)
+    {
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX || UNITY_IPHONE
-		if (webView == IntPtr.Zero)
-			return;
-		_WebViewPlugin_LoadURL(webView, url);
+        if (webView == IntPtr.Zero)
+            return;
+        _CWebViewPlugin_LoadURL(webView, url);
 #elif UNITY_ANDROID
-		if (webView == null)
-			return;
-		webView.Call("LoadURL", url);
+        if (webView == null)
+            return;
+        webView.Call("LoadURL", url);
 #elif UNITY_WEBPLAYER
-		Application.ExternalCall("unityWebView.loadURL", name, url);
+        Application.ExternalCall("unityWebView.loadURL", name, url);
 #endif
-	}
+    }
 
-	public void EvaluateJS(string js)
-	{
+    public void EvaluateJS(string js)
+    {
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX || UNITY_IPHONE
-		if (webView == IntPtr.Zero)
-			return;
-		_WebViewPlugin_EvaluateJS(webView, js);
+        if (webView == IntPtr.Zero)
+            return;
+        _CWebViewPlugin_EvaluateJS(webView, js);
 #elif UNITY_ANDROID
-		if (webView == null)
-			return;
-		webView.Call("LoadURL", "javascript:" + js);
+        if (webView == null)
+            return;
+        webView.Call("LoadURL", "javascript:" + js);
 #elif UNITY_WEBPLAYER
-		Application.ExternalCall("unityWebView.evaluateJS", name, js);
+        Application.ExternalCall("unityWebView.evaluateJS", name, js);
 #endif
-	}
+    }
 
-	public void CallFromJS(string message)
-	{
-		if (callback != null) {
+    public void CallFromJS(string message)
+    {
+        if (callback != null) {
 #if !UNITY_ANDROID
-			message = WWW.UnEscapeURL(message);
+            message = WWW.UnEscapeURL(message);
 #endif
-			callback(message);
-		}
-	}
+            callback(message);
+        }
+    }
 
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX
-	void Update()
-	{
-		inputString += Input.inputString;
-	}
+    void OnApplicationFocus(bool focus)
+    {
+        hasFocus = focus;
+    }
 
-	void OnGUI()
-	{
-		if (webView == IntPtr.Zero || !visibility)
-			return;
+    void Update()
+    {
+        if (hasFocus) {
+            inputString += Input.inputString;
+        }
+    }
 
-		Vector3 pos = Input.mousePosition;
-		bool down = Input.GetButton("Fire1");
-		bool press = Input.GetButtonDown("Fire1");
-		bool release = Input.GetButtonUp("Fire1");
-		float deltaY = Input.GetAxis("Mouse ScrollWheel");
-		bool keyPress = false;
-		string keyChars = "";
-		short keyCode = 0;
-		if (inputString != null && inputString.Length > 0) {
-			keyPress = true;
-			keyChars = inputString.Substring(0, 1);
-			keyCode = (short)inputString[0];
-			inputString = inputString.Substring(1);
-		}
-		_WebViewPlugin_Update(webView,
-			(int)(pos.x - rect.x), (int)(pos.y - rect.y), deltaY,
-			down, press, release, keyPress, keyCode, keyChars,
-			(int)texture.GetNativeTexturePtr());
-		_WebViewPlugin_SetCurrentInstance(webView);
-		GL.IssuePluginEvent(-1);
-		Matrix4x4 m = GUI.matrix;
-		GUI.matrix = Matrix4x4.TRS(new Vector3(0, Screen.height, 0),
-			Quaternion.identity, new Vector3(1, -1, 1));
-		GUI.DrawTexture(rect, texture);
-		GUI.matrix = m;
-	}
+    void OnGUI()
+    {
+        if (webView == IntPtr.Zero || !visibility)
+            return;
+
+        Vector3 pos = Input.mousePosition;
+        bool down = Input.GetButton("Fire1");
+        bool press = Input.GetButtonDown("Fire1");
+        bool release = Input.GetButtonUp("Fire1");
+        float deltaY = Input.GetAxis("Mouse ScrollWheel");
+        bool keyPress = false;
+        string keyChars = "";
+        short keyCode = 0;
+        if (inputString != null && inputString.Length > 0) {
+            keyPress = true;
+            keyChars = inputString.Substring(0, 1);
+            keyCode = (short)inputString[0];
+            inputString = inputString.Substring(1);
+        }
+        _CWebViewPlugin_Update(webView,
+            (int)(pos.x - rect.x), (int)(pos.y - rect.y), deltaY,
+            down, press, release, keyPress, keyCode, keyChars);
+        {
+            var w = _CWebViewPlugin_BitmapWidth(webView);
+            var h = _CWebViewPlugin_BitmapHeight(webView);
+            if (texture == null || texture.width != w || texture.height != h) {
+                texture = new Texture2D(w, h, TextureFormat.RGBA32, false, true);
+                texture.filterMode = FilterMode.Bilinear;
+                texture.wrapMode = TextureWrapMode.Clamp;
+            }
+        }
+        _CWebViewPlugin_SetTextureId(webView, (int)texture.GetNativeTexturePtr());
+        _CWebViewPlugin_SetCurrentInstance(webView);
+#if UNITY_4_6 || UNITY_5_0 || UNITY_5_1
+        GL.IssuePluginEvent(-1);
+#else
+        GL.IssuePluginEvent(GetRenderEventFunc(), -1);
+#endif
+        Matrix4x4 m = GUI.matrix;
+        GUI.matrix = Matrix4x4.TRS(new Vector3(0, Screen.height, 0),
+            Quaternion.identity, new Vector3(1, -1, 1));
+        GUI.DrawTexture(rect, texture);
+        GUI.matrix = m;
+    }
 #endif
 }
