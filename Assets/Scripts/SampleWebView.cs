@@ -32,10 +32,13 @@ public class SampleWebView : MonoBehaviour
 	{
 		webViewObject =
 			(new GameObject("WebViewObject")).AddComponent<WebViewObject>();
-		webViewObject.Init((msg)=>{
+		webViewObject.Init(
+		(msg)=>{
+			// Funcion que se llama desde dentro del html hacia Unity
 			Debug.Log(string.Format("CallFromJS[{0}]", msg));
-			status.text = msg;
-			status.GetComponent<Animation>().Play();
+//			status.text = msg;
+//			status.GetComponent<Animation>().Play();
+			Debug.Log(msg);
 		});
 		
 		webViewObject.SetMargins(5, 5, 5, Screen.height / 4);
